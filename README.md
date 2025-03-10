@@ -3,7 +3,7 @@
 A feature-rich and interactive music bot for Discord that supports Spotify and YouTube links, allowing users to play, queue, shuffle, and control music playback seamlessly. Built with `discord.js` and `@discordjs/voice`.
 
 ## ⚠️ Disclaimer
-Currently, this bot does not support music playback. I am actively working on this feature.
+Currently, this bot does not support music playback. I am actively working on this feature. I would appreciate it if some one can help me with implementing the (Spotify API) as well as (Youtube API)
 
 ## 🚀 Features
 - **🎶 Play Music**: Supports Spotify track links and general search queries.
