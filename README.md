@@ -1,4 +1,4 @@
-# 🎵 Discord Music Bot
+# 🎵 Discord Music Bot 🤖
 
 A feature-rich and interactive music bot for Discord that supports Spotify and YouTube links, allowing users to play, queue, shuffle, and control music playback seamlessly. Built with `discord.js` and `@discordjs/voice`.
 
