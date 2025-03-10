@@ -15,7 +15,7 @@ Currently, this bot does not support music playback. I am actively working on th
 - **⏮️ Previous Track**: Navigate back to the last song played.
 - **🔁 Repeat**: Replay the current song.
 - **⏳ Auto Disconnect**: Leaves the voice channel after 30 seconds of inactivity.
-- 🖥️ Display the artist and track name as well as the thumbnail of the track and the duration of the track.
+- **🖥️ Embed Display**: Display the artist and track name as well as the thumbnail of the track and the duration of the track.
 
 ## 🛠️ Installation
 
