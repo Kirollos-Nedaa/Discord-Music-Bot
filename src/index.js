@@ -121,6 +121,24 @@ client.on('interactionCreate', async (interaction) => {
   } else if (interaction.isButton()) {
     const queue = distube.getQueue(interaction.guild.id);
 
+    if (interaction.customId === 'repeat') {
+      if (queue) {
+        const repeatModes = ['Off', 'Song', 'Queue'];
+        queue.setRepeatMode((queue.repeatMode + 1) % 3);
+        const currentMode = repeatModes[queue.repeatMode];
+  
+        const embed_repeat = new EmbedBuilder()
+          .setDescription(`🔁 Repeat mode set to: **${currentMode}**`)
+          .setColor('Blue')
+          .setTimestamp();
+          
+        await interaction.reply({ embeds: [embed_repeat] }).catch(console.error);
+      } else {
+        await interaction.reply({ content: '🚫 No song is currently playing.' }).catch(console.error);
+      }
+    }
+  
+
     if (interaction.customId === 'stop') {
       await interaction.deferReply();
       if (queue) {
@@ -131,7 +149,7 @@ client.on('interactionCreate', async (interaction) => {
           .setTimestamp();
         await interaction.editReply({ embeds: [embed_stop], components: [] }).catch(console.error);
       } else {
-        await interaction.editReply({ content: '🚫 Not connected to any voice channel.', ephemeral: true }).catch(console.error);
+        await interaction.editReply({ content: '🚫 Not connected to any voice channel.' }).catch(console.error);
       }
     }
 
