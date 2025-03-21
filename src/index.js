@@ -1,6 +1,6 @@
 require('dotenv').config();
-const { Client, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, GatewayIntentBits } = require('discord.js');
-const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, VoiceConnectionStatus } = require('@discordjs/voice');
+const { Client, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, GatewayIntentBits, IntentsBitField } = require('discord.js');
+const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, VoiceConnectionStatus, getVoiceConnection } = require('@discordjs/voice');
 const { DisTube } = require('distube');
 const { SpotifyPlugin } = require('@distube/spotify');
 const { YtDlpPlugin } = require('@distube/yt-dlp');
@@ -34,77 +34,156 @@ client.on('ready', () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
 });
 
-client.on('messageCreate', async (message) => {
-  if (!message.content.startsWith('!') || message.author.bot) return;
-  const args = message.content.slice(1).trim().split(/ +/);
-  const command = args.shift().toLowerCase();
+client.on('interactionCreate', async (interaction) => {
+  if (!interaction.isCommand()) return;
 
-  if (command === 'play') {
-    const voiceChannel = message.member.voice.channel;
-    if (!voiceChannel) return message.reply('🚫 You need to be in a voice channel to play music!');
-    if (!args[0]) return message.reply('🚫 Please provide a song name or URL!');
+  const { commandName, options, member } = interaction;
+
+  if (commandName === 'play') {
+    const voiceChannel = member.voice.channel;
+    if (!voiceChannel) return interaction.reply('🚫 You need to be in a voice channel to play music!');
+    const query = options.getString('query');
+    if (!query) return interaction.reply('🚫 Please provide a song name or URL!');
 
     try {
-      console.log(`🎶 Attempting to play: ${args.join(' ')} in channel ${voiceChannel.name}`);
-      await distube.play(voiceChannel, args.join(' '), {
-        member: message.member,
-        textChannel: message.channel,
-        message,
+      console.log(`🎶 Attempting to play: ${query} in channel ${voiceChannel.name}`);
+      await interaction.deferReply();
+      await distube.play(voiceChannel, query, {
+        member: member,
+        textChannel: interaction.channel
       });
     } catch (err) {
       console.error(`[Play Command Error]`, err);
-      message.channel.send(`❌ An error occurred while playing: ${err.message}`);
+      interaction.reply(`❌ An error occurred while playing: ${err.message}`);
     }
   }
 });
 
-distube.on('playSong', async (queue, song) => {
+const createControlRow = (buttons) => {
+  return new ActionRowBuilder().addComponents(
+    ...buttons.map(({ id, emoji, style }) => new ButtonBuilder().setCustomId(id).setEmoji(emoji).setStyle(style))
+  );
+};
+
+const controls1 = createControlRow([
+  { id: 'previous', emoji: '⏮️', style: ButtonStyle.Secondary },
+  { id: 'pause', emoji: '⏸️', style: ButtonStyle.Secondary },
+  { id: 'skip', emoji: '⏭️', style: ButtonStyle.Secondary },
+]);
+
+const controls2 = createControlRow([
+  { id: 'shuffle', emoji: '🔀', style: ButtonStyle.Secondary },
+  { id: 'stop', emoji: '🚫', style: ButtonStyle.Secondary },
+  { id: 'repeat', emoji: '🔁', style: ButtonStyle.Secondary },
+]);
+
+const nowPlayingEmbed = (song) => new EmbedBuilder()
+  .setTitle('🎶 Now Playing')
+  .setColor('Green')
+  .setThumbnail(song.thumbnail)
+  .addFields(
+    { name: 'Track:', value: `[\`${song.name}\`](${song.url})` },
+    { name: 'Requested By:', value: `<@${song.user.id}>`, inline: true },
+    { name: 'Duration:', value: `\`${song.formattedDuration}\``, inline: true }
+  )
+  .setImage('https://c.tenor.com/fdHXQgnfQGUAAAAC/tenor.gif')
+  .setTimestamp()
+  .setFooter({ text: `${song.user.tag}`, iconURL: song.user.displayAvatarURL({ dynamic: true }) });
+
+client.on('interactionCreate', async (interaction) => {
+  if (!interaction.isButton()) return;
+
+  const queue = distube.getQueue(interaction.guild.id);
+
+  if (interaction.customId === 'stop') {
+    await interaction.deferReply();
+    if (queue) {
+      queue.stop();
+      const embed_stop = new EmbedBuilder()
+        .setDescription(`🚫 Music playback stopped and **the queue has been cleared**.`)
+        .setColor('Red')
+        .setTimestamp();
+      await interaction.editReply({ embeds: [embed_stop] });
+    } else {
+      await interaction.editReply({ content: '🚫 Not connected to any voice channel.', ephemeral: true });
+    }
+  }
+
+  if (interaction.customId === 'pause') {
+    if (queue) {
+      queue.pause();
+      interaction.update({
+        components: [createControlRow([
+          { id: 'previous', emoji: '⏮️', style: ButtonStyle.Secondary },
+          { id: 'resume', emoji: '▶️', style: ButtonStyle.Secondary },
+          { id: 'skip', emoji: '⏭️', style: ButtonStyle.Secondary },
+        ]), controls2],
+      });
+    }
+  }
+
+  if (interaction.customId === 'resume') {
+    if (queue) {
+      queue.resume();
+      interaction.update({ components: [controls1, controls2] });
+    }
+  }
+
+  if (interaction.customId === 'skip') {
+    await interaction.deferReply();
+    if (queue && queue.songs.length > 1) {
+      queue.skip();
+      const embed_skip = new EmbedBuilder()
+        .setDescription('⏭️ **Song Skipped!** Playing next track in the queue.')
+        .setColor('Blue')
+        .setTimestamp();
+      await interaction.editReply({ embeds: [embed_skip] });
+    } else {
+      const embed_skip_end = new EmbedBuilder()
+        .setDescription(`🚫 No more songs in the queue to skip to.`)
+        .setColor('Red')
+        .setTimestamp();
+      await interaction.editReply({ embeds: [embed_skip_end] });
+    }
+  }
+});
+
+distube.on('playSong', (queue, song) => {
+  queue.textChannel?.send({ embeds: [nowPlayingEmbed(song)], components: [controls1, controls2] });
+});
+
+distube.on('addSong', (queue, song) => {
   const embed = new EmbedBuilder()
-    .setTitle('🎶 Now Playing')
-    .setColor('Green')
-    .setThumbnail(song.thumbnail)
+    .setColor('Blue')
     .addFields(
-      { name: 'Track:', value: `[\`${song.uploader.name} - ${song.name}\`](${song.url})` },
-      { name: 'Requested By:', value: `<@${queue.textChannel.guild.members.cache.get(song.user.id).user.id}>`, inline: true },
+      { name: 'Track Queued:', value: `**#\`${queue.songs.length}\`** - [\`${song.name}\`](${song.url})`, inline: true },
+      { name: 'Requested by:', value: `<@${song.user.id}>`, inline: true },
       { name: 'Duration:', value: `\`${song.formattedDuration}\``, inline: true }
     )
-    .setImage('https://c.tenor.com/fdHXQgnfQGUAAAAC/tenor.gif')
     .setTimestamp()
-    .setFooter({ text: `${song.user.tag}`, iconURL: song.user.displayAvatarURL({ dynamic: true }) });
-
-  const row = new ActionRowBuilder()
-    .addComponents(
-      new ButtonBuilder().setCustomId('previous').setEmoji('⏮️').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId('pause').setEmoji('⏸️').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId('skip').setEmoji('⏭️').setStyle(ButtonStyle.Secondary)
-    );
-
-  const row2 = new ActionRowBuilder()
-    .addComponents(
-      new ButtonBuilder().setCustomId('shuffle').setEmoji('🔀').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId('stop').setEmoji('🚫').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId('repeat').setEmoji('🔁').setStyle(ButtonStyle.Secondary)
-    );
-
-  queue.textChannel.send({ embeds: [embed], components: [row, row2] });
+    .setFooter({ 
+      text: `${song.user.tag}`, 
+      iconURL: song.user.displayAvatarURL({ dynamic: true }),
+    });
+  queue.textChannel?.send({ embeds: [embed] });
 });
 
 distube.on('finish', (queue) => {
-  queue.textChannel.send('✅ Queue finished.');
+  const embedf = new EmbedBuilder()
+    .setColor('Green')
+    .setDescription(`**Queue finished.**`)
+    .setTimestamp();
+  queue.textChannel?.send({ embeds: [embedf] });
 });
 
 distube.on('error', (queue, error) => {
   console.error(`[DisTube Error]`, error);
-  if (queue?.textChannel) {
-    queue.textChannel.send(`❌ An error occurred: ${error.message}`);
-  } else {
-    console.warn('⚠️ No text channel available to send the error message.');
-  }
+  queue.textChannel?.send(`❌ An error occurred: ${error.message}`);
 });
 
 distube.on('warn', (queue, warning) => {
   console.warn(`[DisTube Warning] ${warning}`);
-  queue?.textChannel?.send(`⚠️ Warning: ${warning}`);
+  queue.textChannel?.send(`⚠️ Warning: ${warning}`);
 });
 
 client.login(process.env.TOKEN);
